@@ -1,0 +1,9 @@
+[commons.notification.server]
+port = 19100
+ns = "test"
+
+[commons.notification.server.auth]
+enforceScopes = true
+
+[commons.notification.server.db]
+url = "jdbc:h2:mem:notification-test;DB_CLOSE_DELAY=-1"
