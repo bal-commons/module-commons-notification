@@ -15,36 +15,21 @@ import commons/notification.server as _;
 ```
 
 ```toml
-# Ballerina.toml — pin service_commons too: a local dependency's own dependencies are not resolved from local.
-[[dependency]]
-org = "commons"
-name = "notification"
-version = "0.1.0"
-repository = "local"
-
-[[dependency]]
-org = "commons"
-name = "service_commons"
-version = "0.1.0"
-repository = "local"
-```
-
-```toml
 # Config.toml
 [commons.notification.server]
 port = 9100                      # default
 basePath = "/notifications/v1"   # default
-ns = "tenant-app"
+ns = "my-app"
 
 [commons.notification.server.auth]
 enableJwtAuth = true
-jwksUrl = "https://localhost:8090/oauth2/jwks"
-rolesClaim = "groups"            # default; Thunder's claim
+jwksUrl = "https://idp.example.com/oauth2/jwks"
+rolesClaim = "groups"            # default
 enforceScopes = true
 
 [commons.notification.server.db]
 dbType = "POSTGRESQL"
-url = "jdbc:postgresql://localhost:5432/tenantapp"
+url = "jdbc:postgresql://localhost:5432/myapp"
 user = "app"
 password = "app"
 ```
@@ -133,5 +118,3 @@ Timestamps are epoch milliseconds. Notifications older than `retentionDays`, and
 read rows.
 
 Tested on H2. The SQL is kept portable to MySQL and PostgreSQL, but it hasn't been run against them yet.
-
-Design: `docs/demos/tenant-app/proposal.md` §7.
