@@ -21,7 +21,7 @@ export class NotificationClient {
     return request(this.baseUrl, `/notifications/${encodeURIComponent(id)}/read`, {method: "DELETE", auth: this.auth});
   }
 
-  markAllRead(filter: {box?: Box; role?: string} = {}): Promise<{count: number}> {
+  markAllRead(filter: {box?: Box; role?: string; category?: string; correlationId?: string} = {}): Promise<{count: number}> {
     return request(this.baseUrl, "/notifications/read-all", {method: "POST", body: filter, auth: this.auth});
   }
 }

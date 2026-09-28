@@ -2,7 +2,7 @@ import {type AuthAdapter, relativeTime, tokens} from "@bal-commons/ui-core";
 import {css, html, LitElement, nothing} from "lit";
 import {NotificationClient} from "./client.js";
 import {type FeedChange, feedFor} from "./feed.js";
-import type {Box, Notification} from "./types.js";
+import type {Box, ListOptions, Notification, Severity} from "./types.js";
 
 const BOXES: {box: Box; label: string}[] = [
   {box: "all", label: "All"}, {box: "personal", label: "Personal"}, {box: "role", label: "Roles"}
@@ -16,6 +16,9 @@ const BOXES: {box: Box; label: string}[] = [
  * @csspart list - The notification list.
  * @csspart item - One notification.
  * @csspart mark-all - The "Mark all read" button.
+ * @csspart filters - The unread and severity filters (with `show-filters`).
+ * @csspart empty - The empty state.
+ * @slot empty - Replaces the "No notifications." text.
  */
 export class CommonsInbox extends LitElement {
   static override properties = {
@@ -24,6 +27,10 @@ export class CommonsInbox extends LitElement {
     box: {type: String, reflect: true},
     pageSize: {type: Number, attribute: "page-size"},
     hideTabs: {type: Boolean, attribute: "hide-tabs"},
+    unreadOnly: {type: Boolean, attribute: "unread-only", reflect: true},
+    severity: {type: String},
+    correlationId: {type: String, attribute: "correlation-id"},
+    showFilters: {type: Boolean, attribute: "show-filters"},
     items: {state: true, attribute: false},
     nextCursor: {state: true, attribute: false},
     loading: {state: true, attribute: false},
@@ -35,6 +42,14 @@ export class CommonsInbox extends LitElement {
   declare box: Box;
   declare pageSize: number;
   declare hideTabs: boolean;
+  /** Shows only unread notifications. */
+  declare unreadOnly: boolean;
+  /** Shows only this severity: `INFO`, `WARNING`, `ERROR` or `SUCCESS`. */
+  declare severity?: Severity;
+  /** Shows only the notifications about this business object, e.g. an order or case ID. */
+  declare correlationId?: string;
+  /** Shows the unread and severity filters in the header. */
+  declare showFilters: boolean;
   /** @internal */
   declare items: Notification[];
   /** @internal */
@@ -51,6 +66,8 @@ export class CommonsInbox extends LitElement {
     this.box = "all";
     this.pageSize = 20;
     this.hideTabs = false;
+    this.unreadOnly = false;
+    this.showFilters = false;
     this.items = [];
     this.loading = false;
   }
@@ -64,6 +81,10 @@ export class CommonsInbox extends LitElement {
     }
     .tab[aria-selected="true"] { background: var(--_accent-soft); border-color: var(--_accent); }
     .link { margin-left: auto; color: var(--_accent); }
+    .tabs { display: flex; gap: 4px; }
+    .filters { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--_muted); }
+    .filters select { font: inherit; font-size: 12px; background: var(--_bg); color: var(--_fg);
+      border: 1px solid var(--_border); border-radius: 6px; padding: 2px 4px; }
     button:focus-visible { outline: 2px solid var(--_accent); outline-offset: 1px; }
     ul { list-style: none; margin: 0; padding: 4px; display: grid; gap: 4px; }
     li {
@@ -97,7 +118,8 @@ export class CommonsInbox extends LitElement {
   }
 
   override updated(changed: Map<string, unknown>): void {
-    if ((changed.has("baseUrl") || changed.has("box")) && this.baseUrl && this.isConnected) {
+    const filters = ["box", "unreadOnly", "severity", "correlationId"].some((name) => changed.has(name));
+    if ((changed.has("baseUrl") || filters) && this.baseUrl && this.isConnected) {
       if (changed.has("baseUrl")) {
         this.start();
       } else {
@@ -110,7 +132,7 @@ export class CommonsInbox extends LitElement {
   async reload(): Promise<void> {
     this.loading = true;
     try {
-      const page = await this.client().list({box: this.box, limit: this.pageSize});
+      const page = await this.client().list({...this.query(), limit: this.pageSize});
       this.items = page.items;
       this.nextCursor = page.nextCursor;
       this.error = undefined;
@@ -125,9 +147,37 @@ export class CommonsInbox extends LitElement {
     if (!this.nextCursor) {
       return;
     }
-    const page = await this.client().list({box: this.box, limit: this.pageSize, cursor: this.nextCursor});
-    this.items = [...this.items, ...page.items];
-    this.nextCursor = page.nextCursor;
+    await this.attempt(async () => {
+      const page = await this.client().list({...this.query(), limit: this.pageSize, cursor: this.nextCursor});
+      this.items = [...this.items, ...page.items.filter((n) => !this.items.some((i) => i.id === n.id))];
+      this.nextCursor = page.nextCursor;
+    });
+  }
+
+  // Runs an action and shows its failure instead of leaving an unhandled rejection.
+  private async attempt(action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+      this.error = undefined;
+    } catch (e) {
+      this.error = (e as Error).message;
+    }
+  }
+
+  // Left and right arrows move between the tabs.
+  private arrow(e: KeyboardEvent): void {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") {
+      return;
+    }
+    const index = BOXES.findIndex((b) => b.box === this.box);
+    const next = BOXES[(index + (e.key === "ArrowRight" ? 1 : BOXES.length - 1)) % BOXES.length];
+    this.box = next.box;
+    void this.updateComplete.then(() => (this.renderRoot.querySelector(".tab[aria-selected=true]") as HTMLElement | null)?.focus());
+  }
+
+  private query(): ListOptions {
+    return {box: this.box, read: this.unreadOnly ? false : undefined, severity: this.severity || undefined,
+      correlationId: this.correlationId || undefined};
   }
 
   private client(): NotificationClient {
@@ -149,6 +199,10 @@ export class CommonsInbox extends LitElement {
         break;
       case "read":
       case "unread":
+        if (this.unreadOnly && change.type === "read") {
+          this.items = this.items.filter((n) => n.id !== change.id);
+          break;
+        }
         this.items = this.items.map((n) => n.id === change.id
             ? {...n, read: change.type === "read", readAt: change.type === "read" ? change.readAt : undefined} : n);
         break;
@@ -161,7 +215,9 @@ export class CommonsInbox extends LitElement {
   }
 
   private inBox(n: Notification): boolean {
-    return this.box === "all" || (this.box === "personal") === (n.recipientType === "USER");
+    const box = this.box === "all" || (this.box === "personal") === (n.recipientType === "USER");
+    return box && (!this.severity || n.severity === this.severity)
+        && (!this.correlationId || n.correlationId === this.correlationId);
   }
 
   private async open(n: Notification): Promise<void> {
@@ -173,25 +229,45 @@ export class CommonsInbox extends LitElement {
   }
 
   private async setRead(n: Notification, read: boolean): Promise<void> {
-    const updated = read ? await this.client().markRead(n.id) : await this.client().markUnread(n.id);
-    this.items = this.items.map((item) => item.id === n.id ? updated : item);
+    await this.attempt(async () => {
+      const updated = read ? await this.client().markRead(n.id) : await this.client().markUnread(n.id);
+      this.items = this.items.map((item) => item.id === n.id ? updated : item);
+    });
   }
 
+  // Marks what the filters show. The service filters read-all by box and correlation ID but not by severity, so a
+  // severity filter marks the loaded notifications one by one.
   private async markAll(): Promise<void> {
-    await this.client().markAllRead({box: this.box});
+    await this.attempt(async () => {
+      if (this.severity) {
+        await Promise.all(this.items.filter((n) => !n.read).map((n) => this.client().markRead(n.id)));
+      } else {
+        await this.client().markAllRead({box: this.box, correlationId: this.correlationId || undefined});
+      }
+    });
     await this.reload();
   }
 
   override render() {
     return html`
       <header part="header">
-        ${this.hideTabs ? nothing : BOXES.map(({box, label}) => html`
-          <button class="tab" role="tab" aria-selected=${this.box === box} @click=${() => { this.box = box; }}>
-            ${label}</button>`)}
+        ${this.hideTabs ? nothing : html`<span role="tablist" aria-label="Boxes" class="tabs">${BOXES.map(({box, label}) => html`
+          <button class="tab" role="tab" aria-selected=${this.box === box} tabindex=${this.box === box ? 0 : -1}
+              @click=${() => { this.box = box; }} @keydown=${(e: KeyboardEvent) => this.arrow(e)}>
+            ${label}</button>`)}</span>`}
+        ${this.showFilters ? html`<span class="filters" part="filters">
+          <label><input type="checkbox" .checked=${this.unreadOnly}
+              @change=${(e: Event) => { this.unreadOnly = (e.target as HTMLInputElement).checked; }}> Unread</label>
+          <select aria-label="Severity" @change=${(e: Event) => {
+              this.severity = ((e.target as HTMLSelectElement).value || undefined) as Severity | undefined; }}>
+            ${["", "INFO", "WARNING", "ERROR", "SUCCESS"].map((v) => html`<option value=${v}
+                ?selected=${(this.severity ?? "") === v}>${v ? v.toLowerCase() : "any severity"}</option>`)}
+          </select></span>` : nothing}
         <button class="link" part="mark-all" @click=${() => this.markAll()}>Mark all read</button>
       </header>
       ${this.error ? html`<div class="error" role="alert">${this.error}</div>` : nothing}
-      ${!this.loading && !this.error && this.items.length === 0 ? html`<div class="empty">No notifications.</div>` : nothing}
+      ${!this.loading && !this.error && this.items.length === 0
+          ? html`<div class="empty" part="empty"><slot name="empty">No notifications.</slot></div>` : nothing}
       <ul part="list" aria-label="Notifications">
         ${this.items.map((n) => html`
           <li class="${n.severity} ${n.read ? "read" : ""}" part="item" tabindex="0"
