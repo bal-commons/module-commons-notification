@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>notification-ui demo</title>
+  <style>
+    body { margin: 0; font: 14px system-ui, sans-serif; background: #f5f6f8; }
+    header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; background: #fff; border-bottom: 1px solid #e3e6eb; }
+    header strong { flex: 1; }
+    main { max-width: 520px; margin: 16px auto; padding: 0 16px; }
+    input, select { font: inherit; padding: 4px 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>@bal-commons/notification-ui</strong>
+    <label>Service <input id="url" size="36" value="http://localhost:9100/notifications/v1"></label>
+    <label>User <select id="user">
+      <option value="tara|Tenant">tara (Tenant)</option>
+      <option value="priya|PropertyManager">priya (PropertyManager)</option>
+      <option value="fernando|Finance">fernando (Finance)</option>
+    </select></label>
+    <commons-notification-bell id="bell"></commons-notification-bell>
+  </header>
+  <main>
+    <commons-inbox id="inbox"></commons-inbox>
+  </main>
+  <script type="module">
+    import {configureAuth, devUser} from "../dist/notification-ui.bundle.js";
+
+    const user = document.getElementById("user");
+    const url = document.getElementById("url");
+    const saved = new URLSearchParams(location.search);
+    if (saved.get("user")) user.value = saved.get("user");
+    if (saved.get("url")) url.value = saved.get("url");
+
+    // One call configures every component; real apps pass bearer(() => token) instead.
+    const [id, roles] = user.value.split("|");
+    configureAuth(devUser(id, [roles]));
+    for (const el of [document.getElementById("bell"), document.getElementById("inbox")]) {
+      el.setAttribute("base-url", url.value);
+    }
+    user.addEventListener("change", () => location.search = `?user=${user.value}&url=${encodeURIComponent(url.value)}`);
+    document.getElementById("bell").addEventListener("commons-bell-click", () =>
+      document.getElementById("inbox").scrollIntoView({behavior: "smooth"}));
+    document.getElementById("inbox").addEventListener("commons-notification-click", (e) =>
+      console.log("clicked", e.detail.notification.title));
+  </script>
+</body>
+</html>

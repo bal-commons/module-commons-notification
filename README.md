@@ -7,6 +7,11 @@ Role and personal notification inboxes with per-user read state and real-time de
 | `notification` | Types and `Client`. Safe to import anywhere. |
 | `notification.server` | The HTTP service. Importing it starts the listener. |
 
+## UI components
+
+[`@bal-commons/notification-ui`](ui/README.md) (npm) provides `<commons-notification-bell>` and `<commons-inbox>`,
+live Web Components for this service, and an integration prompt to copy into a coding assistant.
+
 ## Run it inside an application
 
 ```ballerina
